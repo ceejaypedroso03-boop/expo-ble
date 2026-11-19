@@ -1,0 +1,165 @@
+<!doctype html>
+<html><head><meta charset="utf-8">
+<style>html,body{margin:0;background:transparent;overflow:hidden}canvas{display:block}</style>
+<script type="importmap">{"imports":{"three":"./package/build/three.module.js","three/addons/":"./package/examples/jsm/"}}</script>
+</head><body>
+<script type="module">
+import * as THREE from 'three';
+import { RoundedBoxGeometry } from 'three/addons/geometries/RoundedBoxGeometry.js';
+
+const W = 1080, H = 1300;
+const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true, preserveDrawingBuffer: true });
+renderer.setSize(W, H); renderer.setPixelRatio(1);
+renderer.setClearColor(0x000000, 0);
+renderer.shadowMap.enabled = true; renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+renderer.toneMapping = THREE.ACESFilmicToneMapping; renderer.outputColorSpace = THREE.SRGBColorSpace;
+document.body.appendChild(renderer.domElement);
+
+const scene = new THREE.Scene();
+const camera = new THREE.PerspectiveCamera(32, W / H, 1, 5000);
+
+scene.add(new THREE.HemisphereLight(0xcfe8ff, 0x0a1830, 1.1));
+const key = new THREE.DirectionalLight(0xffffff, 2.6); key.position.set(300, 600, 400);
+key.castShadow = true; key.shadow.mapSize.set(2048, 2048);
+Object.assign(key.shadow.camera, { left: -400, right: 400, top: 400, bottom: -400, near: 10, far: 2000 });
+scene.add(key);
+const rim = new THREE.DirectionalLight(0x40e8ff, 1.4); rim.position.set(-400, 300, -400); scene.add(rim);
+const fill = new THREE.DirectionalLight(0x6688ff, 0.8); fill.position.set(-300, 100, 300); scene.add(fill);
+
+// glowing floor ring + shadow catcher
+const floor = new THREE.Group(); scene.add(floor);
+const shadowMat = new THREE.ShadowMaterial({ opacity: 0.45 });
+const sh = new THREE.Mesh(new THREE.CircleGeometry(400, 64), shadowMat); sh.rotation.x = -Math.PI / 2; sh.receiveShadow = true; floor.add(sh);
+function ring(r, w, op) {
+  const m = new THREE.Mesh(new THREE.RingGeometry(r, r + w, 128), new THREE.MeshBasicMaterial({ color: 0x40e8ff, transparent: true, opacity: op, side: THREE.DoubleSide, blending: THREE.AdditiveBlending, depthWrite: false }));
+  m.rotation.x = -Math.PI / 2; m.position.y = 0.5; floor.add(m); return m;
+}
+ring(200, 3, 0.9); ring(212, 1.5, 0.5); ring(150, 1, 0.35);
+const ticks = new THREE.Group(); floor.add(ticks);
+for (let i = 0; i < 48; i++) {
+  const a = i / 48 * Math.PI * 2;
+  const t = new THREE.Mesh(new THREE.PlaneGeometry(i % 4 ? 2 : 4, i % 4 ? 10 : 20), new THREE.MeshBasicMaterial({ color: 0x40e8ff, transparent: true, opacity: 0.7, blending: THREE.AdditiveBlending, side: THREE.DoubleSide }));
+  t.rotation.x = -Math.PI / 2; t.rotation.z = -a; t.position.set(Math.sin(a) * 228, 0.6, Math.cos(a) * 228); ticks.add(t);
+}
+
+const solidMats = [];
+function mat(color, opts = {}) {
+  const m = new THREE.MeshStandardMaterial({ color, roughness: 0.55, metalness: 0.15, transparent: true, ...opts });
+  solidMats.push(m); return m;
+}
+function mesh(geo, m, parent) {
+  const o = new THREE.Mesh(geo, m); o.castShadow = true; o.receiveShadow = true; parent.add(o); return o;
+}
+function tube(points, r, m, parent, seg = 64) {
+  const c = new THREE.CatmullRomCurve3(points.map(p => new THREE.Vector3(...p)));
+  return mesh(new THREE.TubeGeometry(c, seg, r, 20, false), m, parent);
+}
+function cyl(r, h, m, parent, rt) { return mesh(new THREE.CylinderGeometry(rt ?? r, r, h, 40), m, parent); }
+
+// ---------------- Smart cane -------------------------------------------
+function buildCane() {
+  const g = new THREE.Group();
+  const metal = mat(0x2c3138, { metalness: 0.6, roughness: 0.35 });
+  const rubber = mat(0x1a1c20, { roughness: 0.9 });
+  const legs = mat(0x4a4f57, { metalness: 0.5, roughness: 0.4 });
+  const boxM = mat(0x7d8ea8, { roughness: 0.6 });
+  const plate = mat(0x5d6573, { metalness: 0.4 });
+  // base plate
+  const p = mesh(new RoundedBoxGeometry(70, 6, 70, 3, 2), plate, g); p.position.y = 42;
+  for (const [sx, sz] of [[1, 1], [1, -1], [-1, 1], [-1, -1]]) {
+    tube([[sx * 22, 42, sz * 22], [sx * 45, 52, sz * 45], [sx * 72, 40, sz * 72], [sx * 82, 16, sz * 82]], 6, legs, g);
+    const f = cyl(10, 16, rubber, g, 8.5); f.position.set(sx * 82, 8, sz * 82);
+  }
+  const collar = cyl(11, 26, plate, g); collar.position.y = 58;
+  const sh1 = cyl(7, 260, metal, g); sh1.position.y = 45 + 130;
+  // distance sensor housing (front)
+  const sens = mesh(new RoundedBoxGeometry(46, 24, 16, 2, 2), mat(0x22262c), g); sens.position.set(0, 130, 12);
+  const meshM = mat(0xc9ccd2, { metalness: 0.8, roughness: 0.3 });
+  for (const sx of [-11, 11]) { const e = cyl(7, 8, meshM, g); e.rotation.x = Math.PI / 2; e.position.set(sx, 130, 22); }
+  // electronics box
+  const box = mesh(new RoundedBoxGeometry(72, 58, 62, 4, 3), boxM, g); box.position.y = 300;
+  // status LED + label strip on the box
+  const led = mesh(new THREE.SphereGeometry(3, 16, 16), new THREE.MeshBasicMaterial({ color: 0x40ff9a }), g); led.position.set(22, 314, 31.5);
+  const strip = mesh(new THREE.BoxGeometry(40, 4, 1), new THREE.MeshBasicMaterial({ color: 0x40e8ff }), g); strip.position.set(-8, 290, 31.5);
+  const sh2 = cyl(7, 130, metal, g); sh2.position.y = 330 + 60;
+  // question-mark handle
+  tube([[0, 450, 0], [0, 480, 0], [4, 510, 0], [22, 540, 0], [24, 568, 0], [10, 588, 0], [-15, 594, 0]], 7, metal, g);
+  tube([[-14, 594, 0], [-40, 594, 0], [-70, 592, 0]], 10, rubber, g, 16);
+  g.position.y = 0; g.scale.setScalar(0.95);
+  return { g, look: new THREE.Vector3(0, 300, 0), dist: 1080, h: 480 };
+}
+
+// ---------------- GroundSense enclosure --------------------------------
+function textTex(draw, w, h) {
+  const c = document.createElement('canvas'); c.width = w; c.height = h; const x = c.getContext('2d'); draw(x, w, h);
+  const t = new THREE.CanvasTexture(c); t.colorSpace = THREE.SRGBColorSpace; t.anisotropy = 8; return t;
+}
+function buildGround() {
+  const g = new THREE.Group();
+  const body = mat(0x8b9097, { roughness: 0.75 });
+  const dark = mat(0x15171a, { roughness: 0.5 });
+  const steel = mat(0xd5d8dc, { metalness: 0.9, roughness: 0.25 });
+  const B = mesh(new RoundedBoxGeometry(160, 140, 70, 5, 5), body, g); B.position.y = 70 + 90;
+  const front = 160 / 2 * 0 + 35.3;
+  // OLED
+  const bezel = mesh(new RoundedBoxGeometry(56, 34, 3, 2, 1), dark, g); bezel.position.set(0, 190, front);
+  const oled = textTex((x, w, h) => {
+    x.fillStyle = '#02060a'; x.fillRect(0, 0, w, h);
+    x.fillStyle = '#5ff0ff'; x.font = 'bold 54px monospace'; x.textAlign = 'center'; x.fillText('GroundSense', w / 2, 76);
+    x.font = '30px monospace'; x.fillText('landslide monitor', w / 2, 120);
+    x.strokeStyle = '#5ff0ff'; x.lineWidth = 5; x.beginPath(); x.moveTo(40, 170); x.lineTo(w - 70, 170); x.lineTo(w - 50, 150); x.stroke();
+  }, 512, 256);
+  const scr = new THREE.Mesh(new THREE.PlaneGeometry(48, 24), new THREE.MeshBasicMaterial({ map: oled, transparent: true }));
+  scr.position.set(0, 190, front + 1.7); g.add(scr); solidMats.push(scr.material);
+  // engraved label
+  const lbl = textTex((x, w, h) => { x.clearRect(0, 0, w, h); x.fillStyle = 'rgba(30,32,36,0.85)'; x.font = '300 120px "Inter", sans-serif'; x.textAlign = 'center'; x.fillText('GroundSense', w / 2, 150); }, 1024, 220);
+  const L = new THREE.Mesh(new THREE.PlaneGeometry(120, 26), new THREE.MeshStandardMaterial({ map: lbl, transparent: true, roughness: 0.9 }));
+  L.position.set(0, 150, front + 0.4); g.add(L); solidMats.push(L.material);
+  // screws
+  for (const [sx, sy] of [[-70, 222], [70, 222], [-70, 98], [70, 98]]) { const s = cyl(4, 2, dark, g); s.rotation.x = Math.PI / 2; s.position.set(sx, sy, front + 0.5); }
+  // antennas
+  for (const sx of [-55, 55]) {
+    const base = cyl(7, 12, dark, g); base.position.set(sx, 236, -15);
+    const a = new THREE.Group(); a.position.set(sx, 242, -15); a.rotation.z = sx < 0 ? 0.35 : -0.35; g.add(a);
+    const rod = cyl(5, 120, dark, a, 4); rod.position.y = 60;
+  }
+  // soil probes
+  for (const sx of [-10, 10]) { const pr = cyl(1.6, 95, steel, g); pr.position.set(sx, 47, 15); }
+  // red button on the side
+  const btn = cyl(5, 5, mat(0xd8322f), g); btn.rotation.z = Math.PI / 2; btn.position.set(81, 200, 10);
+  return { g, look: new THREE.Vector3(0, 150, 0), dist: 1050, h: 300 };
+}
+
+const models = { cane: buildCane, ground: buildGround };
+let current = null, edges = null;
+window.setup = (name) => {
+  const m = models[name](); scene.add(m.g); current = m;
+  // wireframe overlay for the "render reveal"
+  edges = new THREE.Group();
+  m.g.updateMatrixWorld(true);
+  m.g.traverse(o => {
+    if (o.isMesh && o.geometry && o.geometry.type !== "PlaneGeometry" && o.geometry.type !== "SphereGeometry") {
+      const e = new THREE.LineSegments(new THREE.EdgesGeometry(o.geometry, 25), new THREE.LineBasicMaterial({ color: 0x40e8ff, transparent: true, opacity: 1, blending: THREE.AdditiveBlending, depthWrite: false }));
+      e.applyMatrix4(o.matrixWorld); edges.add(e);
+    }
+  });
+  scene.add(edges);
+  return true;
+};
+window.frame = (angle, solid, wire, scan) => {
+  const { look, dist, h } = current;
+  camera.position.set(Math.sin(angle) * dist, look.y + h * 0.35 + 120, Math.cos(angle) * dist);
+  camera.lookAt(look.x, look.y - 10, look.z);
+  for (const m of solidMats) m.opacity = solid;
+  current.g.traverse(o => { if (o.isMesh) o.castShadow = solid > 0.5; });
+  edges.traverse(o => { if (o.material) o.material.opacity = wire; });
+  // scan plane: clip solid above scan height for a "building" effect
+  const plane = new THREE.Plane(new THREE.Vector3(0, -1, 0), scan);
+  for (const m of solidMats) m.clippingPlanes = scan < 9999 ? [plane] : [];
+  renderer.localClippingEnabled = true;
+  renderer.render(scene, camera);
+  return true;
+};
+window.ready = true;
+</script>
+</body></html>

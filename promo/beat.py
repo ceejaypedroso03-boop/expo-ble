@@ -3,7 +3,7 @@ import numpy as np, wave
 from scipy.signal import butter, sosfilt
 
 SR = 44100
-DUR = 62.0
+DUR = 75.5
 BPM = 120
 B = 60 / BPM            # beat = 0.5 s
 N = int(SR * DUR)
@@ -73,7 +73,7 @@ for bar in range(int(DUR // 2) + 1):
 pad = lp(pad, 1400)
 # fade the pad gently in the drop, keep it big in intro/outro
 pad_gain = np.ones(N) * 0.22
-pad_gain[T(24):T(56.5)] = 0.12
+pad_gain[T(31):T(70)] = 0.12
 add(pad * pad_gain, 0, 1.0)
 
 # Hook hits (0-3 s): kick + impact on each word
@@ -96,12 +96,12 @@ def groove(a, b, full):
             if beat % 4 == 3: add(hat(True), s + B / 2, 0.12, 0.2)
         s += B
 
-groove(6.0, 24.0, False)
-groove(24.0, 56.5, True)
-add(riser(3.0), 21.0, 0.45)
-add(impact(), 24.0, 0.7)
-add(riser(2.0), 54.5, 0.35)
-add(impact(), 56.5, 0.9)
+groove(6.0, 31.0, False)
+groove(31.0, 70.0, True)
+add(riser(3.0), 28.0, 0.45)
+add(impact(), 31.0, 0.7)
+add(riser(2.0), 68.0, 0.35)
+add(impact(), 70.0, 0.9)
 
 # Bass: offbeat 8ths, root of chord
 def bassline(a, b, g):
@@ -113,8 +113,8 @@ def bassline(a, b, g):
             x = lp(saw(note(r), n) + 0.5 * np.sin(2 * np.pi * note(r - 12) * t), 500) * np.exp(-t * 6)
             add(x, s + off, g)
         s += 0.5
-bassline(6.0, 24.0, 0.45)
-bassline(24.0, 56.5, 0.55)
+bassline(6.0, 31.0, 0.45)
+bassline(31.0, 70.0, 0.55)
 
 # Arp (16ths) in the drop and outro
 def arp(a, b, g):
@@ -124,8 +124,8 @@ def arp(a, b, g):
         seq = [c[0] + 12, c[1] + 12, c[2] + 12, c[1] + 24]
         add(pluck(seq[k % 4]), s, g, 0.35 if k % 2 else -0.35)
         s += B / 4; k += 1
-arp(24.0, 56.5, 0.16)
-arp(56.5, 60.0, 0.10)
+arp(31.0, 70.0, 0.16)
+arp(70.0, 73.5, 0.10)
 
 # Sidechain duck (pad/bass breathe with the kick) - approximate on the master
 duck = np.ones(N)

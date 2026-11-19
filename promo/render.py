@@ -59,6 +59,7 @@ def paste(base, el, cx, cy, alpha=1.0, scale=1.0, anchor='c'):
         a = el.getchannel('A').point(lambda v: int(v * alpha)); el = el.copy(); el.putalpha(a)
     x = int(cx - el.width / 2) if anchor == 'c' else int(cx)
     y = int(cy - el.height / 2)
+    if x >= base.width or y >= base.height or x + el.width <= 0 or y + el.height <= 0: return
     base.alpha_composite(el, (max(0, x), max(0, y)), (max(0, -x), max(0, -y)))
 
 def panel(w, h, border=CYAN, fill=(4, 12, 30, 200), cut=28, glow=10):
@@ -251,6 +252,41 @@ def punch(fr, i, n=5, amt=0.07):
     cw, ch = W / z, H / z
     return fr.resize((W, H), Image.BILINEAR, box=((W - cw) / 2, (H - ch) / 2, (W + cw) / 2, (H + ch) / 2))
 
+class Render3D:
+    def __init__(self, model, dur):
+        import glob
+        self.files = sorted(glob.glob(f'r3d/{model}/f_*.png'))
+    def get(self, i):
+        return Image.open(self.files[min(i, len(self.files) - 1)]).convert('RGBA')
+
+def phone(shot, w=540):
+    """Phone mockup: screenshot inside a rounded bezel with a neon edge."""
+    h = int(w * shot.height / shot.width)
+    scr = shot.resize((w, h), Image.LANCZOS).convert('RGBA')
+    m = Image.new('L', (w, h), 0); ImageDraw.Draw(m).rounded_rectangle([0, 0, w - 1, h - 1], 46, fill=255)
+    scr.putalpha(m)
+    b = 16; pad = 40
+    out = Image.new('RGBA', (w + 2 * (b + pad), h + 2 * (b + pad)), (0, 0, 0, 0))
+    edge = Image.new('RGBA', out.size, (0, 0, 0, 0))
+    ImageDraw.Draw(edge).rounded_rectangle([pad - 2, pad - 2, pad + w + 2 * b + 2, pad + h + 2 * b + 2], 62, outline=CYAN + (255,), width=6)
+    out.alpha_composite(edge.filter(ImageFilter.GaussianBlur(18)))
+    ImageDraw.Draw(out).rounded_rectangle([pad, pad, pad + w + 2 * b, pad + h + 2 * b], 60, fill=(12, 14, 20, 255), outline=(70, 80, 95, 255), width=3)
+    out.alpha_composite(scr, (pad + b, pad + b))
+    return out
+
+class AppSrc:
+    def __init__(self):
+        shots = []
+        for k in ('a804a955', '9c12cf35', '937c9b87'):
+            im = Image.open(img(k)).convert('RGB')
+            if k == '937c9b87':   # hide the GPS coordinates line
+                box = (255, 2078, 745, 2128); ImageDraw.Draw(im).rectangle(box, fill=im.getpixel((800, 2105)))
+            shots.append(phone(im))
+        self.phones = shots
+    def get(self, i): return None
+
+APP_SCREENS = [(0.0, 'Project Salus: splash screen'), (1.6, 'Hazard dashboard over ESP-NOW'), (4.0, 'Smart cane app: SOS + live map')]
+
 # ---------------------------------------------------------------- timeline
 SEGS = []
 def seg(dur, kind, **kw): SEGS.append(dict(dur=dur, kind=kind, **kw))
@@ -263,6 +299,8 @@ seg(2.0, 'photo', src=('3f8de0ba', (150, 180, 900, 740)), title='HARDWARE', sub=
 seg(3.0, 'video', src=('a5b2f5d5', 0.0), title='CIRCUIT DESIGN', sub='Custom circuits, simulated first', kicker='STEP 02 // CIRCUIT', label='SIM')
 seg(3.0, 'video', src=('a30ed479', 1.5), title='3D MODELING', sub='Precision enclosures', kicker='STEP 03 // CAD', label='CAD')
 seg(2.5, 'photo', src=('7d8ac4a5', (170, 360, 830, 840)), title='ENCLOSURES', sub='Every part fits the board', kicker='STEP 03 // CAD', label='CAD')
+seg(3.5, 'render3d', model='cane', title='3D RENDER', sub='Smart cane, full assembly', kicker='STEP 03 // VISUALIZE', label='RENDER')
+seg(3.5, 'render3d', model='ground', title='3D RENDER', sub='Landslide monitor enclosure', kicker='STEP 03 // VISUALIZE', label='RENDER')
 seg(3.0, 'photo', src=('eaa3e2e2', (230, 0, 1230, 680)), title='3D PRINTING', sub='Sliced, printed, ready', kicker='STEP 04 // PRINT', label='PRINT', pan=(0.04, 0))
 seg(2.5, 'reveal', src=('4299bb22', 1.6))
 seg(4.0, 'video', src=('502cb58a', 9.4), title='LANDSLIDE MONITOR', sub='Working IoT prototype', kicker='REAL BUILD', label='LIVE')
@@ -271,6 +309,7 @@ seg(3.0, 'video', src=('502cb58a', 15.4), title='SENSORS', sub='Predictive analy
 seg(2.5, 'video', src=('4299bb22', 7.8), title='ARDUINO / ESP32', sub='Programming in C++, HTML, CSS', kicker='FIRMWARE', label='LIVE')
 seg(2.0, 'video', src=('191c5e87', 19.4), title='ASSEMBLY', sub='Prototype assembly', kicker='STEP 05 // BUILD', label='LIVE')
 seg(2.0, 'video', src=('a2c3d09e', 0.1), title='DELIVERED.', sub='Built. Tested. Done.', kicker='STEP 06 // DONE', label='LIVE')
+seg(6.5, 'app')
 seg(8.0, 'services')
 seg(3.0, 'repair')
 seg(3.0, 'free')
@@ -335,6 +374,44 @@ def render_seg(s, src, i, n, tg):
         hud(fr, tg, s['label'])
         caption(fr, t, s['title'], s.get('sub'), s.get('kicker'))
         fr = punch(fr, i)
+        flash(fr, max(0, 0.35 - t / 0.12 * 0.35))
+        return fr
+    if k == 'render3d':
+        fr = circuit_frame(tg)
+        r = src.get(i)
+        paste(fr, r, W // 2, 880)
+        hud(fr, tg, s['label'])
+        # render status readout
+        if t < 1.1:
+            pct = int(100 * min(1, max(0, (t - 0.2) / 0.9)))
+            paste(fr, glow_text(f'RENDERING... {pct:3d}%', ORB7, 34, CYAN, glow=8), 70, 290, anchor='l')
+        else:
+            paste(fr, glow_text('RENDER COMPLETE', ORB7, 34, (90, 255, 160), glow=8), 70, 290, alpha=ease((t - 1.1) / 0.2), anchor='l')
+        ang = int((i / src.files.__len__()) * 225) % 360
+        paste(fr, glow_text(f'ROT {ang:03d}\u00b0  //  PBR  //  1080P', RAJ, 32, WHITE, glow=3), 70, 340, alpha=0.8, anchor='l')
+        caption(fr, t, s['title'], s.get('sub'), s.get('kicker'), y=1620)
+        fr = punch(fr, i)
+        flash(fr, max(0, 0.35 - t / 0.12 * 0.35))
+        return fr
+    if k == 'app':
+        fr = circuit_frame(tg)
+        hud(fr, tg, 'APP')
+        idx = 0
+        for j, (t0, _) in enumerate(APP_SCREENS):
+            if t >= t0: idx = j
+        # carousel: position = idx with eased transition
+        pos = 0.0
+        for j, (t0, _) in enumerate(APP_SCREENS[1:], 1):
+            pos += ease((t - t0) / 0.45)
+        for j, ph in enumerate(src.phones):
+            off = j - pos
+            if abs(off) > 1.4: continue
+            sc = 1.0 - 0.18 * min(1, abs(off))
+            a = 1.0 - 0.55 * min(1, abs(off))
+            paste(fr, ph, W // 2 + off * 640, 860, scale=sc * (0.92 + 0.08 * ease(t / 0.4)), alpha=a * min(1, t / 0.2))
+        caption(fr, t, 'APP MAKING', None, 'STEP 07 // SOFTWARE', y=1640)
+        sub = APP_SCREENS[idx][1]; st = t - APP_SCREENS[idx][0]
+        paste(fr, glow_text(sub, RAJ, 46, WHITE, glow=6), 52, 1732 + (1 - ease(st / 0.3)) * 20, alpha=ease((st - (0.35 if idx == 0 else 0.1)) / 0.3), anchor='l')
         flash(fr, max(0, 0.35 - t / 0.12 * 0.35))
         return fr
     if k == 'services':
@@ -420,6 +497,8 @@ def build_src(s):
     if k == 'hook':   return VideoSrc('502cb58a', 10.0, s['dur'], blur=6, dim=0.62)
     if k == 'photo':  return PhotoSrc(s['src'][0], s['src'][1], s['dur'], pan=s.get('pan', (0, 0)))
     if k in ('video', 'reveal'): return VideoSrc(s['src'][0], s['src'][1], s['dur'])
+    if k == 'render3d': return Render3D(s['model'], s['dur'])
+    if k == 'app': return AppSrc()
     return None
 
 def main():
